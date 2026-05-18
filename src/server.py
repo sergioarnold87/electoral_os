@@ -54,28 +54,34 @@ def obtener_resultados_agregados(
     con = duckdb.connect(database=':memory:')
     
     where_clauses = []
-    # Enforzamos CAST a VARCHAR en filtros para neutralizar desalineación de tipos en 'ano'
+    
     if ano:
-        where_clauses.append(f"CAST(ano AS VARCHAR) = '{ano}'")
+        where_clauses.append(f"filename LIKE '%_{ano}_%'")
     if departamento:
-        where_clauses.append(f"UPPER(TRIM(departamento)) = '{departamento.upper().strip()}'")
+        dep_upper = departamento.upper().strip()
+        where_clauses.append(f"UPPER(TRIM(COALESCE(departamento, ''))) LIKE '%{dep_upper}%'")
     if distrito:
-        where_clauses.append(f"UPPER(TRIM(distrito)) = '{distrito.upper().strip()}'")
+        dis_upper = distrito.upper().strip()
+        # Coalesce unificado en el WHERE para neutralizar quirks de mayúsculas/minúsculas en la capa Silver
+        where_clauses.append(f"UPPER(TRIM(COALESCE(distrito, DISTRITO, ''))) LIKE '%{dis_upper}%'")
         
     where_stmt = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
-    # query analítica con TRY_CAST defensivo para ignorar basura alfabética en votos
+    # Query analítica libre de backslashes reactivos para el compilador de Python
     query = f"""
         SELECT 
-            CAST(ano AS VARCHAR) AS ano,
-            COALESCE(categoria, 'GENERAL') AS categoria,
-            UPPER(TRIM(departamento)) AS departamento,
-            UPPER(TRIM(distrito)) AS distrito,
-            UPPER(TRIM(partido)) AS partido,
+            REGEXP_EXTRACT(filename, '_([0-9][0-9][0-9][0-9])_', 1) AS ano,
+            CASE 
+                WHEN filename LIKE '%preferentes%' THEN 'PREFERENTES' 
+                ELSE 'GENERAL' 
+            END AS categoria,
+            UPPER(TRIM(COALESCE(departamento, 'NO ESPECIFICADO'))) AS departamento,
+            UPPER(TRIM(COALESCE(distrito, DISTRITO, 'NO ESPECIFICADO'))) AS distrito,
+            UPPER(TRIM(COALESCE(partido, 'OTROS'))) AS partido,
             SUM(TRY_CAST(votos AS BIGINT)) AS total_votos
-        FROM read_parquet('{PATH_SILVER}', union_by_name=True)
+        FROM read_parquet('{PATH_SILVER}', union_by_name=True, filename=True)
         {where_stmt}
-        GROUP BY 1, 2, 3, 4, 5
+        GROUP BY ALL
         HAVING total_votos > 0
         ORDER BY total_votos DESC
         LIMIT 500
