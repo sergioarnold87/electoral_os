@@ -54,23 +54,25 @@ def obtener_resultados_agregados(
     con = duckdb.connect(database=':memory:')
     
     where_clauses = []
+    # Enforzamos CAST a VARCHAR en filtros para neutralizar desalineación de tipos en 'ano'
     if ano:
-        where_clauses.append(f"ano = '{ano}'")
+        where_clauses.append(f"CAST(ano AS VARCHAR) = '{ano}'")
     if departamento:
-        where_clauses.append(f"UPPER(departamento) = '{departamento.upper()}'")
+        where_clauses.append(f"UPPER(TRIM(departamento)) = '{departamento.upper().strip()}'")
     if distrito:
-        where_clauses.append(f"UPPER(distrito) = '{distrito.upper()}'")
+        where_clauses.append(f"UPPER(TRIM(distrito)) = '{distrito.upper().strip()}'")
         
     where_stmt = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
+    # query analítica con TRY_CAST defensivo para ignorar basura alfabética en votos
     query = f"""
         SELECT 
-            ano,
-            categoria,
+            CAST(ano AS VARCHAR) AS ano,
+            COALESCE(categoria, 'GENERAL') AS categoria,
             UPPER(TRIM(departamento)) AS departamento,
             UPPER(TRIM(distrito)) AS distrito,
             UPPER(TRIM(partido)) AS partido,
-            SUM(CAST(votos AS INTEGER)) AS total_votos
+            SUM(TRY_CAST(votos AS BIGINT)) AS total_votos
         FROM read_parquet('{PATH_SILVER}', union_by_name=True)
         {where_stmt}
         GROUP BY 1, 2, 3, 4, 5
