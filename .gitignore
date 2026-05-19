@@ -1,8 +1,18 @@
+# Entorno Virtual
 .venv/
+venv/
 __pycache__/
 *.pyc
-.DS_Store
-.duckdb
 
-# Bloquear estrictamente el almacenamiento de binarios pesados en Git (Data Leakage Prevention)
+# Almacenamiento de Datos (Lakehouse)
 data/
+*.parquet
+*.pdf
+*.xlsx
+*.xls
+*.json
+
+# Configuraciones locales de IDEs
+.vscode/
+.idea/
+.DS_Store
