@@ -54,32 +54,38 @@ def obtener_resultados_agregados(
     con = duckdb.connect(database=':memory:')
     
     where_clauses = []
-    
     if ano:
-        where_clauses.append(f"filename LIKE '%_{ano}_%'")
+        where_clauses.append(f"ano_str = '{ano}'")
     if departamento:
-        dep_upper = departamento.upper().strip()
-        where_clauses.append(f"UPPER(TRIM(COALESCE(departamento, ''))) LIKE '%{dep_upper}%'")
+        where_clauses.append(f"departamento_norm = '{departamento.upper().strip()}'")
     if distrito:
-        dis_upper = distrito.upper().strip()
-        # Coalesce unificado en el WHERE para neutralizar quirks de mayúsculas/minúsculas en la capa Silver
-        where_clauses.append(f"UPPER(TRIM(COALESCE(distrito, DISTRITO, ''))) LIKE '%{dis_upper}%'")
+        where_clauses.append(f"distrito_norm = '{distrito.upper().strip()}'")
         
     where_stmt = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
-    # Query analítica libre de backslashes reactivos para el compilador de Python
+    # Engine robusto: Extracción por Regex de metadatos del archivo y COALESCE de esquemas mutados
     query = f"""
+        WITH data_preparada AS (
+            SELECT 
+                REGEXP_EXTRACT(filename, '(\d{4})_\d{4}', 1) AS ano_str,
+                CASE 
+                    WHEN filename LIKE '%preferentes%' THEN 'PREFERENTES' 
+                    ELSE 'GENERAL' 
+                END AS categoria_norm,
+                UPPER(TRIM(COALESCE(departamento, 'NO ESPECIFICADO'))) AS departamento_norm,
+                UPPER(TRIM(COALESCE(distrito, DISTRITO, 'NO ESPECIFICADO'))) AS distrito_norm,
+                UPPER(TRIM(COALESCE(partido, 'OTROS'))) AS partido_norm,
+                TRY_CAST(votos AS BIGINT) AS votos_num
+            FROM read_parquet('{PATH_SILVER}', union_by_name=True, filename=True)
+        )
         SELECT 
-            REGEXP_EXTRACT(filename, '_([0-9][0-9][0-9][0-9])_', 1) AS ano,
-            CASE 
-                WHEN filename LIKE '%preferentes%' THEN 'PREFERENTES' 
-                ELSE 'GENERAL' 
-            END AS categoria,
-            UPPER(TRIM(COALESCE(departamento, 'NO ESPECIFICADO'))) AS departamento,
-            UPPER(TRIM(COALESCE(distrito, DISTRITO, 'NO ESPECIFICADO'))) AS distrito,
-            UPPER(TRIM(COALESCE(partido, 'OTROS'))) AS partido,
-            SUM(TRY_CAST(votos AS BIGINT)) AS total_votos
-        FROM read_parquet('{PATH_SILVER}', union_by_name=True, filename=True)
+            ano_str AS ano,
+            categoria_norm AS categoria,
+            departamento_norm AS departamento,
+            distrito_norm AS distrito,
+            partido_norm AS partido,
+            SUM(votos_num) AS total_votos
+        FROM data_preparada
         {where_stmt}
         GROUP BY ALL
         HAVING total_votos > 0

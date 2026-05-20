@@ -65,7 +65,6 @@ def ejecutar_pipeline():
             
         nombre_asset = item["title"].lower() if item["title"] else item["dataset_title"].lower()
         
-        # --- PROTECCIÓN DE DERIVACIÓN: Determinar formato real por extensión de URL ---
         url_lower = url.lower()
         if url_lower.endswith('.xlsx'):
             format_type = "XLSX"
@@ -87,7 +86,6 @@ def ejecutar_pipeline():
 
         ano = extraer_ano_seguro(item["title"], item["dataset_title"])
         if not ano:
-            logging.warning(f"[GOVERNANCE SKIP] Sin año identificable para: {nombre_asset}. Saltando.")
             continue
 
         filename_parquet = f"bronze_tsje_{categoria}_{ano}_{ano}.parquet"
@@ -95,7 +93,6 @@ def ejecutar_pipeline():
         temp_file_path = os.path.join("/tmp", os.path.basename(url.split("?")[0]))
 
         if os.path.exists(target_parquet_path):
-            logging.info(f"[HTTP 304] Asset ya vectorizado localmente: {filename_parquet}. Saltando.")
             continue
 
         logging.info(f"Descargando flujo binario: {url}")
@@ -114,7 +111,6 @@ def ejecutar_pipeline():
                 
                 delimiter = ";" if ";" in first_line and "," not in first_line else ","
                 
-                # Inyección explícita de encoding 'LATIN1' para domar la ñ y acentos hispanos
                 query_csv = f"""
                     COPY (
                         SELECT * FROM read_csv_auto('{temp_file_path}', 
@@ -147,3 +143,7 @@ def ejecutar_pipeline():
 
     con.close()
     logging.info("Ejecución del pipeline de adquisición finalizado con validación de contratos.")
+
+# --- INVOCACIÓN EXPLÍCITA DEL PUNTO DE ENTRADA ---
+if __name__ == "__main__":
+    ejecutar_pipeline()
